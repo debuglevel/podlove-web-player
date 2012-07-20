@@ -1,15 +1,13 @@
 var PODLOVE = PODLOVE || {};
 
-(function ($) {
+(function (PODLOVE, $, MEP, window) {
 	'use strict';
 
-	var startAtTime = false,
-		stopAtTime = false,
-		// Keep all Players on site
+	var // Keep a reference to all players
 		players = [],
 		// Timecode as described in http://podlove.org/deep-link/
 		// and http://www.w3.org/TR/media-frags/#fragment-dimensions
-		timecodeRegExp = /(\d\d:)?(\d\d):(\d\d)(\.\d\d\d)?([,-](\d\d:)?(\d\d):(\d\d)(\.\d\d\d)?)?/;
+		timecodeRegExp = /(\d\d:)?(\d\d):(\d\d)(\.\d\d\d)?([,\-](\d\d:)?(\d\d):(\d\d)(\.\d\d\d)?)?/;
 
 	/**
 	 * return number as string lefthand filled with zeros
@@ -23,36 +21,43 @@ var PODLOVE = PODLOVE || {};
 	}
 
 	/**
+	 * accepts time in seconds
+	 * returns timecodepart in deep-linking format
+	 * @param seconds number
+	 * @return string
+	 **/
+	function generateTimecodePart(seconds) {
+		var core, hours, milliseconds;
+		// prevent negative values from player
+		if (!seconds || seconds <= 0) {
+			return '00:00';
+		}
+
+		// required (minutes : seconds)
+		core = zeroFill(Math.floor(seconds / 60) % 60, 2) + ':' +
+				zeroFill(Math.floor(seconds % 60) % 60, 2);
+
+		hours = zeroFill(Math.floor(seconds / 60 / 60), 2);
+		hours = hours === '00' ? '' : hours + ':';
+		milliseconds = zeroFill(Math.floor(seconds % 1 * 1000), 3);
+		milliseconds = milliseconds === '000' ? '' : '.' + milliseconds;
+
+		return hours + core + milliseconds;
+	}
+
+	/**
 	 * accepts array with start and end time in seconds
 	 * returns timecode in deep-linking format
 	 * @param times array
 	 * @return string
 	 **/
 	function generateTimecode(times) {
-		function generatePart(seconds) {
-			var part, hours, milliseconds;
-			// prevent negative values from player
-			if (!seconds || seconds <= 0) {
-				return '00:00';
-			}
-
-			// required (minutes : seconds)
-			part = zeroFill(Math.floor(seconds / 60) % 60, 2) + ':' +
-					zeroFill(Math.floor(seconds % 60) % 60, 2);
-
-			hours = zeroFill(Math.floor(seconds / 60 / 60), 2);
-			hours = hours === '00' ? '' : hours + ':';
-			milliseconds = zeroFill(Math.floor(seconds % 1 * 1000), 3);
-			milliseconds = milliseconds === '000' ? '' : '.' + milliseconds;
-
-			return hours + part + milliseconds;
-		}
-
 		if (times[1] > 0 && times[1] < 9999999 && times[0] < times[1]) {
-			return generatePart(times[0]) + ',' + generatePart(times[1]);
+			return (generateTimecodePart(times[0]) +
+					',' + generateTimecodePart(times[1]));
 		}
 
-		return generatePart(times[0]);
+		return generateTimecodePart(times[0]);
 	}
 
 	/**
@@ -100,125 +105,105 @@ var PODLOVE = PODLOVE || {};
 		return false;
 	}
 
-	function checkCurrentURL() {
-		var deepLink;
-
+	function checkUrlForDeeplink(url, player) {
 		// parse deeplink
-		deepLink = parseTimecode(window.location.href);
+		var deeplink = parseTimecode(url || window.location.href),
+			jqPlayer = $(player);
 
-		if (deepLink !== false) {
-			startAtTime = deepLink[0];
-			stopAtTime = deepLink[1];
+		if (deeplink !== false) {
+			// Do only set current time if it will change
+			if (parseInt(deeplink[0], 10) !== parseInt(player.currentTime, 10)) {
+				jqPlayer.data('startAtTime', deeplink[0]);
+			}
+			jqPlayer.data('stopAtTime', deeplink[1]);
+
+			if (player.pause || player.ended) {
+				jqPlayer.trigger('timeupdate');
+			}
 		}
 	}
 
 	function setFragmentURL(fragment) {
-		var url;
-
 		window.location.hash = fragment;
+	}
+
+	function renderChapterMark(player, mark) {
+		var title, deeplink,
+			permalink  = $(player).data('permalink') || window.location.href,
+			startTime  = mark.data('start'),
+			endTime    = mark.data('end'),
+			isEnabled  = mark.data('enabled'),
+			isBuffered = player.buffered.end(0) > startTime,
+			isActive   = player.currentTime > startTime - 0.3 &&
+					player.currentTime <= endTime;
+
+		if (isActive) {
+			mark
+				.addClass('active')
+				.siblings().removeClass('active');
+		}
+		if (!isEnabled && isBuffered) {
+			deeplink = permalink + '#t=' + generateTimecode([startTime, endTime]);
+
+			mark.data('enabled', true);
+
+			title = mark.find('td.title');
+			title.html('<a href="' + deeplink + '">' + title.html() + '</a>');
+		}
 	}
 
 	// update the chapter list when the data is loaded
 	function updateChapterMarks(player, marks) {
 		marks.each(function () {
-			var title, deepLink,
-				mark       = $(this),
-				startTime  = mark.data('start'),
-				endTime    = mark.data('end'),
-				isEnabled  = mark.data('enabled'),
-				isBuffered = player.buffered.end(0) > startTime,
-				isActive   = player.currentTime > startTime - 0.3 &&
-						player.currentTime <= endTime;
-
-			if (isActive) {
-				mark
-					.addClass('active')
-					.siblings().removeClass('active');
-			}
-			if (!isEnabled && isBuffered) {
-				deepLink = '#t=' + generateTimecode([startTime, endTime]);
-
-				mark.data('enabled', true);
-
-				title = mark.find('td.title');
-				title.html('<a href="' + deepLink + '">' + title.html() + '</a>');
-			}
+			renderChapterMark(player, $(this));
 		});
 	}
 
-	function checkTime(e) {
-		if (players.length > 1) {
-			return;
-		}
-
-		var player = e.data.player;
+	function checkTime(player) {
+		var jqPlayer    = $(player),
+			startAtTime = jqPlayer.data('startAtTime'),
+			stopAtTime  = jqPlayer.data('stopAtTime');
 
 		if (startAtTime !== false) {
 			player.setCurrentTime(startAtTime);
-			startAtTime = false;
+			jqPlayer.data('startAtTime', false);
 		}
 		if (stopAtTime !== false && player.currentTime >= stopAtTime) {
+			jqPlayer.data('stopAtTime', false);
 			player.pause();
-			stopAtTime = false;
+			jqPlayer.data('startAtTime', false);
 		}
 	}
 
-	function addressCurrentTime(e) {
-		var fragment;
-		if (players.length === 1 &&
-				stopAtTime === false &&
-				startAtTime === false) {
-			fragment = 't=' + generateTimecode([e.data.player.currentTime]);
+	function addressCurrentTime() {
+		if (players.length > 1) {
+			return;
+		}
+		var fragment,
+			player      = players[0],
+			jqPlayer    = $(player),
+			startAtTime = jqPlayer.data('startAtTime'),
+			stopAtTime  = jqPlayer.data('stopAtTime'),
+			currentTime = player.currentTime;
+
+		if (stopAtTime === false && startAtTime === false) {
+			fragment = 't=' + generateTimecode([currentTime]);
 			setFragmentURL(fragment);
 		}
 	}
-
-	PODLOVE.web_player = function (playerId) {
-		var deepLink,
-			player = $('#' + playerId);
-
-		players.push(player);
-
-		// parse deeplink
-		deepLink = parseTimecode(window.location.href);
-
-		if (deepLink !== false && players.length === 1) {
-			player
-				.attr({preload: 'auto', autoplay: 'autoplay'});
-
-			startAtTime = deepLink[0];
-			stopAtTime = deepLink[1];
-		}
-
-		window.MediaElementPlayer('#' + playerId, {
-			success: function (player) {
-				PODLOVE.web_player.addBehavior(player);
-				if (deepLink !== false && players.length === 1) {
-					$('html, body')
-						.delay(150)
-						.animate({
-							scrollTop: $('.mediaelementjs_player_container:first').offset().top - 25
-						});
-				}
-			}
-		});
-	};
 
 	/**
 	 * add chapter behavior and deeplinking: skip to referenced
 	 * time position & write current time into address
 	 * @param player object
 	 */
-	PODLOVE.web_player.addBehavior = function (player) {
-		var jqPlayer = $(player),
-			playerId = jqPlayer.attr('id'),
-			list = $('table[rel=' + playerId + ']'),
-			marks = list.find('tr');
-
-		if (players.length === 1) {
-			// check if deeplink is set
-			checkCurrentURL();
-		}
+	function addBehavior(player) {
+		var jqPlayer  = $(player),
+			playerId  = jqPlayer.attr('id'),
+			list      = $('table[rel=' + playerId + ']'),
+			marks     = list.find('tr'),
+			isTarget  = parseTimecode(window.location.href) !== false &&
+					players.length === 1;
 
 		// chapters list
 		list
@@ -232,11 +217,13 @@ var PODLOVE = PODLOVE || {};
 
 				// If there is only one player also set deepLink
 				if (players.length === 1) {
-					return setFragmentURL('t=' + generateTimecode([startTime, endTime]));
+					setFragmentURL('t=' + generateTimecode([startTime, endTime]));
 				}
 
-				// Basic Chapter Mark function (without deeplinking)
-				player.setCurrentTime(startTime);
+				jqPlayer.data('startAtTime', startTime);
+				jqPlayer.data('stopAtTime', endTime);
+				checkTime(player);
+
 				if (player.pluginType !== 'flash') {
 					player.play();
 				}
@@ -244,34 +231,78 @@ var PODLOVE = PODLOVE || {};
 
 		// wait for the player or you'll get DOM EXCEPTIONS
 		jqPlayer.bind('canplay', function () {
-
 			// add Deeplink Behavior if there is only one player on the site
 			if (players.length === 1) {
-				jqPlayer.bind({
-					play: checkTime,
-					timeupdate: checkTime,
-					pause: addressCurrentTime
-					// disabled 'cause it overrides chapter clicks
-					//seeked: addressCurrentTime
-				}, {player: player});
+				//jqPlayer.bind('pause', addressCurrentTime);
 
 				// handle browser history navigation
-				$(window).bind('hashchange onpopstate', checkCurrentURL);
+				$(window).bind('hashchange', function () {
+					checkUrlForDeeplink(null, player);
+				});
 
 				// handle links on the page
 				// links added later are not handled!
-				$('a').bind('click', function () {
-					// if we stay on the page after clicking a link
-					// check if theres a new deeplink
-					window.setTimeout(checkCurrentURL, 100);
+				$('a[href*="#t="]').bind('click', function () {
+					checkUrlForDeeplink(this.href, player);
 				});
 			}
 
 			// always update Chaptermarks though
-			jqPlayer.bind('timeupdate', function () {
-				updateChapterMarks(player, marks);
+			jqPlayer.bind({
+				play: function () {
+					checkTime(player);
+				},
+				timeupdate: function () {
+					checkTime(player);
+					updateChapterMarks(player, marks);
+				}
 			});
+		});
 
+		if (isTarget) {
+			checkUrlForDeeplink(null, player);
+
+			$('html, body')
+				.delay(150)
+				.animate({
+					scrollTop: $('.mediaelementjs_player_container:first').offset().top - 25
+				});
+			player.play();
+		}
+	}
+
+
+	PODLOVE.WebPlayer = function (playerId, options) {
+		var jqPlayer = $('#' + playerId),
+			player = jqPlayer[0];
+
+		options = options || {};
+
+		// Add options from data-attribute
+		$.extend(options, jqPlayer.data('mejsoptions'));
+
+		// Add extra behavior after MediaElement Player is initialized
+		$.extend(options, {success: addBehavior});
+
+		// kepp track on all players in the window
+		players.push(player);
+
+		// MediaElement Player
+		MEP('#' + playerId, options);
+
+		return player;
+	};
+
+	// Register jQuery Plugin: $('audio').podloveWebPlayer({});
+	$.fn.podloveWebPlayer = function (options) {
+		return $(this).each(function () {
+			var element = $(this);
+
+			if (!element.data('podloveWebPlayer')) {
+				element.data('podloveWebPlayer',
+						PODLOVE.WebPlayer(element.attr('id'), options));
+			}
 		});
 	};
-}(jQuery));
+
+}(PODLOVE, jQuery, MediaElementPlayer, window));

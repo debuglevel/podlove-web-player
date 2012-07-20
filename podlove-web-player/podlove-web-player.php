@@ -267,7 +267,7 @@ function podlove_pwp_media_shortcode($tagName, $atts) {
 	$attributes_string = !empty($attributes) ? implode(' ', $attributes) : '';
 	$sources_string = !empty($sources) ? implode("\n\t\t", $sources) : '';
 	$options_string = !empty($options) ? '{' . implode(',', $options) . '}' : '';
-	$options_string = str_replace('"', '\'', $options_string);
+	$options_string = str_replace('\'', '"', $options_string);
 
 	//prepare player dimensions
 	if ($tagName == 'audio') {
@@ -285,12 +285,14 @@ function podlove_pwp_media_shortcode($tagName, $atts) {
 		$dimensions = 'width="' . $width . '" height="' . $height . '"';
 	}
 
+	$permalink = get_permalink();
+
 	//build actual html player code
 	$mediahtml = <<<_end_
 
 	<div class="mediaelementjs_player_container">
 
-	<{$tagName} id="wp_pwp_{$podlovePlayerIndex}" {$dimensions} controls {$attributes_string} class="{$skin_class}" data-mejsoptions="{$options_string}">
+	<{$tagName} id="wp_pwp_{$podlovePlayerIndex}" data-permalink="{$permalink}" {$dimensions} controls {$attributes_string} class="{$skin_class}" data-mejsoptions='{$options_string}'>
 		{$sources_string}
 	</{$tagName}>
 _end_;
@@ -301,7 +303,7 @@ _end_;
 			$mediahtml .= "\n\n" . $chaptertable;
 		}
 	}
-	$mediahtml .= "\n\n</div>\n\n<script>jQuery(function() { PODLOVE.web_player('wp_pwp_{$podlovePlayerIndex}'); });</script>\n";
+	$mediahtml .= "\n\n</div>\n\n<script>jQuery(function () { PODLOVE.WebPlayer('wp_pwp_{$podlovePlayerIndex}'); });</script>\n";
 
 	$podlovePlayerIndex++;
 	return $mediahtml;
