@@ -1,7 +1,7 @@
 <?php
 /**
  * @package PodloveWebPlayer
- * @version 1.0.9
+ * @version 1.1.0
  */
 
 /*
@@ -9,7 +9,7 @@ Plugin Name: Podlove Web Player
 Plugin URI: http://podlove.org/podlove-web-player/
 Description: Video and audio plugin for WordPress built on the MediaElement.js HTML5 media player library.
 Author: Gerrit van Aaken and others
-Version: 1.0.9
+Version: 1.1.0
 Author URI: http://praegnanz.de
 License: GPLv3, MIT
 */
@@ -98,7 +98,7 @@ if (!get_option('pwp_script_on_demand')) {
 			// the scripts
 			wp_enqueue_script('mediaelementjs-scripts', PODLOVEWEBPLAYER_MEJS_DIR . 'mediaelement-and-player.min.js', array('jquery'), '2.9.1', false);
 			wp_enqueue_script('ba-hashchange', PODLOVEWEBPLAYER_DIR . 'libs/jquery.ba-hashchange.min.js', array('jquery'), '1.3.0', false);
-			wp_enqueue_script('podlove-web-player', PODLOVEWEBPLAYER_DIR . 'podlove-web-player.js', array('jquery', 'mediaelementjs-scripts'), '1.0.9', false);
+			wp_enqueue_script('podlove-web-player', PODLOVEWEBPLAYER_DIR . 'podlove-web-player.js', array('jquery', 'mediaelementjs-scripts'), '1.1.0', false);
 		}
 	}
 	add_action('wp_print_scripts', 'podlove_pwp_add_scripts');
@@ -149,6 +149,7 @@ function podlove_pwp_media_shortcode($tagName, $atts) {
 		'skin' => get_option('pwp_video_skin'),
 		'autoplay' => '',
 		'loop' => '',
+		'chapterlinks' => 'all',
 
 		// old ones
 		'duration' => 'true',
@@ -241,6 +242,9 @@ function podlove_pwp_media_shortcode($tagName, $atts) {
 	if ($duration == 'true') {
 		$controls_option[] = '"duration"';
 	}
+	if ($duration == 'true') {
+		$controls_option[] = '"duration"';
+	}
 	if ($volume == 'true') {
 		$controls_option[] = '"volume"';
 	}
@@ -299,7 +303,7 @@ _end_;
 
 	// Chapters Table and Behaviour
 	if ($chapters) {
-		if ($chaptertable = podlove_pwp_render_chapters($chapters)) {
+		if ($chaptertable = podlove_pwp_render_chapters($chapterlinks, $chapters)) {
 			$mediahtml .= "\n\n" . $chaptertable;
 		}
 	}
@@ -310,7 +314,7 @@ _end_;
 }
 
 
-function podlove_pwp_render_chapters($custom_field) {
+function podlove_pwp_render_chapters($link_chapters, $custom_field) {
 	global $post;
 	global $podlovePlayerIndex;
 	$custom_field = trim($custom_field);
@@ -324,15 +328,30 @@ function podlove_pwp_render_chapters($custom_field) {
 		}
 
 		if ($chapters && $chapters = podlove_pwp_chapters_from_string($chapters[0])) {
-			$output = '<table rel="wp_pwp_' . $podlovePlayerIndex . '" class="pwp_chapters">';
+			$class_names = 'pwp_chapters';
+			if ($link_chapters == 'all' || $link_chapters == 'buffered') {
+				$class_names .= ' linked';
+			}
+
+			$output = '<table rel="wp_pwp_' . $podlovePlayerIndex . '" class="' . $class_names . '">';
 			$output .= '<caption>Podcast Chapters</caption>';
 			$output .= '<thead><tr><th scope="col">Timecode</th><th scope="col">Title</th></tr></thead>';
 			$output .= '<tbody>';
 			foreach ($chapters as $i => $chapter) {
-				$end = ($i == (count($chapters) - 1)) ? '9999999' : $chapters[$i + 1]['timecode'];
+				$is_final_chapter = $i == count($chapters) - 1;
+
+				$end = $is_final_chapter ? '9999999' : $chapters[$i + 1]['timecode'];
 				$output .= '<tr data-start="' . $chapter['timecode'] . '" data-end="' . $end . '">';
+
 				$output .= '<td class="timecode"><code>' . $chapter['human_timecode'] . '</code></td>';
-				$output .= '<td class="title">' . $chapter['title'] . '</td>';
+				if ($link_chapters == 'all') {
+					$deeplink = get_permalink();
+					$deeplink .= '#t=' . $chapter['human_timecode'] .
+							(!$is_final_chapter ? ',' . $chapters[$i + 1]['human_timecode'] : '');
+					$output .= '<td class="title"><a href="' . $deeplink . '">' . $chapter['title'] . '</a></td>';
+				} else {
+					$output .= '<td class="title">' . $chapter['title'] . '</td>';
+				}
 				$output .= '</tr>';
 			}
 			$output .= '</tbody></table>';

@@ -147,13 +147,17 @@ var PODLOVE = PODLOVE || {};
 
 			mark.data('enabled', true);
 
-			title = mark.find('td.title');
-			title.html('<a href="' + deeplink + '">' + title.html() + '</a>');
+			if (doLinkMarks && mark.find('a').length === 0) {
+				mark.find('td.title')
+					.wrapInner('<a href="' + deepLink + '" />');
+			}
 		}
 	}
 
 	// update the chapter list when the data is loaded
 	function updateChapterMarks(player, marks) {
+		var doLinkMarks = marks.closest('table').hasClass('linked');
+
 		marks.each(function () {
 			renderChapterMark(player, $(this));
 		});
@@ -203,7 +207,13 @@ var PODLOVE = PODLOVE || {};
 			list      = $('table[rel=' + playerId + ']'),
 			marks     = list.find('tr'),
 			isTarget  = parseTimecode(window.location.href) !== false &&
-					players.length === 1;
+					players.length === 1,
+			canplay = false;
+
+		if (players.length === 1) {
+			// check if deeplink is set
+			checkUrlForDeeplink(null, player);
+		}
 
 		// chapters list
 		list
@@ -231,6 +241,8 @@ var PODLOVE = PODLOVE || {};
 
 		// wait for the player or you'll get DOM EXCEPTIONS
 		jqPlayer.bind('canplay', function () {
+			canplay = true;
+
 			// add Deeplink Behavior if there is only one player on the site
 			if (players.length === 1) {
 				//jqPlayer.bind('pause', addressCurrentTime);
